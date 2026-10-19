@@ -195,6 +195,13 @@ public readonly partial struct FieldSerializer(UnityVersion version, RuntimeCont
 
 	private bool IsReferenceTypeSerializable(TypeSignature fieldType)
 	{
+		// Collections are handled separately for fields and cannot be collection elements.
+		// Resolving an array can otherwise mistake it for its UnityEngine.Object element type.
+		if (fieldType is SzArrayTypeSignature or ArrayTypeSignature || AsmUtils.IsGenericList(fieldType, runtimeContext))
+		{
+			return false;
+		}
+
 		if (fieldType is CorLibTypeSignature { ElementType: ElementType.String } corLibTypeSignature)
 		{
 			return IsSerializablePrimitive(corLibTypeSignature);
@@ -297,14 +304,17 @@ public readonly partial struct FieldSerializer(UnityVersion version, RuntimeCont
 
 	private bool ShouldImplementIDeserializable([NotNullWhen(true)] ITypeDescriptor? typeDeclaration)
 	{
-		if (typeDeclaration is { Namespace: EngineTypePredicates.UnityEngineNamespace, Name: "ExposedReference`1" })
-		{
-			return true;
-		}
-
 		if (IsNonSerialized(typeDeclaration))
 		{
 			return false;
+		}
+
+		// Constructed generic signatures include type arguments in their name.
+		// ExposedReference<T> is supported even before other generic instances (Unity 2020).
+		if (typeDeclaration.ToTypeSignature(runtimeContext) is GenericInstanceTypeSignature
+			{ GenericType: { Namespace.Value: EngineTypePredicates.UnityEngineNamespace, Name.Value: "ExposedReference`1" } })
+		{
+			return true;
 		}
 
 		if (EngineTypePredicates.ShouldHaveHadSerializableAttribute(typeDeclaration))
